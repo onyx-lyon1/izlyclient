@@ -49,8 +49,9 @@ void main() {
   test("rechager with credit card", () async {
     await izlyClient.login();
     expect(izlyClient.isLogged, true);
-    bool rechargement = await izlyClient.rechargeWithCB(10.0);
-    expect(rechargement, true);
+    final rechargement = await izlyClient.rechargeWithCB(
+        10.0, (await izlyClient.getAvailableCBs()).first);
+    expect(rechargement, isNotEmpty);
     await izlyClient.logout();
     expect(izlyClient.isLogged, false);
   });

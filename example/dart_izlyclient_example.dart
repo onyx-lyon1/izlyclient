@@ -20,7 +20,8 @@ void main() async {
   //get the url to recharge with a account transfer
   String url = await izlyClient.getTransferPaymentUrl(10.0);
   //recharge with a credit card
-  bool result = await izlyClient.rechargeWithCB(10.0);
+  await izlyClient.rechargeWithCB(
+      10.0, (await izlyClient.getAvailableCBs()).first);
   //recharge via someone else
   bool result2 =
       await izlyClient.rechargeViaSomeoneElse(10.0, "email", "message");
