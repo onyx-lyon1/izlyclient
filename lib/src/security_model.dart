@@ -1,7 +1,7 @@
-class SecurityModel {
+class RequestDataModel {
   Map<String, dynamic> body;
   String url;
-  SecurityModel(this.url, this.body);
+  RequestDataModel(this.url, this.body);
 
   @override
   String toString() {

@@ -17,11 +17,11 @@ class IzlyClient {
   IzlyClient(this._username, this._password);
 
   Future<bool> isLogged() async {
-    final r = await Requests.get("$_baseUrl/Home/SessionExpired");
+    final r = await Requests.get("$_baseUrl/Home/PaymentInitiation");
     return (r.statusCode == 200);
   }
 
-  Future<void> login() async {
+  Future<bool> login() async {
     var r = await Requests.get("$_baseUrl/Home/Logon");
     List<String> content = r
         .content()
@@ -44,6 +44,7 @@ class IzlyClient {
       throw Exception("Login failed");
     }
     _isLogged = true;
+    return true;
   }
 
   Future<void> logout() async {
@@ -83,14 +84,14 @@ class IzlyClient {
     return result;
   }
 
-  Future<String> getTransferPaymentUrl(double amount) async {
+  Future<RequestDataModel> getTransferPaymentUrl(double amount) async {
     assert(_isLogged);
     var r = await Requests.post(
         "$_baseUrl/Home/PaymentInitiationRequest?amount=${amount.toStringAsFixed(2)}");
     if (r.statusCode != 200) {
       throw Exception("Payment failed");
     }
-    return jsonDecode(r.content())["url"];
+    return RequestDataModel(jsonDecode(r.content())["url"], {});
   }
 
   Future<List<CbModel>> getAvailableCBs() async {
@@ -110,28 +111,61 @@ class IzlyClient {
     return cb;
   }
 
-  Future<SecurityModel> rechargeWithCB(double amount, CbModel cb) async {
-    //TODO: implement secure payment redirection following
+  Future<RequestDataModel> rechargeWithCB(double amount, CbModel cb) async {
     assert(amount >= 10.0);
 
-    var r = await Requests.post("$_baseUrl/Home/RechargeConfirm", body: {
-      'dataToSend':
-          '{"Amount":"${amount.toStringAsFixed(2)}","Code":"$_password","Senders":[{"ID":"${cb.id}","Name":"${cb.name}","Amount":"${amount.toStringAsFixed(2)}"}]}',
-      'operation': '',
-      'engagementId': '',
-    });
-    if (r.statusCode != 200) {
-      throw Exception("Recharge failed");
+    if ((cb.id != "newCB")) {
+      var r = await Requests.post("$_baseUrl/Home/RechargeConfirm", body: {
+        'dataToSend':
+            '{"Amount":"${amount.toStringAsFixed(2)}","Code":"$_password","Senders":[{"ID":"${cb.id}","Name":"${cb.name}","Amount":"${amount.toStringAsFixed(2)}"}]}',
+        'operation': '',
+        'engagementId': '',
+      });
+      if (r.statusCode != 200) {
+        throw Exception("Recharge failed");
+      }
+      final jsonData = jsonDecode(r.body);
+      final securityReturn =
+          jsonDecode(jsonData["Confirm"]["DalenysData3DSReturn"]);
+      return RequestDataModel(jsonData["Confirm"]["DalenysUrl3DSReturn"], {
+        'transaction_id': securityReturn['transaction_id'],
+        'transaction_public_id': securityReturn['transaction_public_id'],
+        'card_network': securityReturn['card_network'],
+        'log_id': securityReturn['log_id'],
+      });
+    } else {
+      var r = await Requests.post("$_baseUrl/Home/PaymentCreateRequest", body: {
+        'amount': amount.toStringAsFixed(2),
+      });
+      if (r.hasError) {
+        throw 'web error';
+      }
+      r = await Requests.post(
+        "$_baseUrl/Profile/CompleteProfilePayment",
+        body: {
+          'amount': jsonDecode(r.body)["amount"],
+          'registered': "true",
+          'transferId': jsonDecode(r.body)["transfertId"]
+        },
+      );
+      if (r.hasError) {
+        throw 'web error';
+      }
+      Document parsedHtml = HtmlParser(r.body).parse();
+      Map<String, dynamic> body = {};
+      for (Node node in parsedHtml.children.first.nodes[2].nodes[1].nodes
+          .firstWhere(
+              (element) => element.attributes["id"] == "submit-payment-form")
+          .nodes
+          .toList()) {
+        if (node.attributes.containsKey("type") &&
+            node.attributes["type"] == "hidden") {
+          body[node.attributes['name'].toString()] = node.attributes['value'];
+        }
+      }
+      return RequestDataModel(
+          "https://secure-magenta1.be2bill.com/front/form/process", body);
     }
-    final jsonData = jsonDecode(r.body);
-    final securityReturn =
-        jsonDecode(jsonData["Confirm"]["DalenysData3DSReturn"]);
-    return SecurityModel(jsonData["Confirm"]["DalenysUrl3DSReturn"], {
-      'transaction_id': securityReturn['transaction_id'],
-      'transaction_public_id': securityReturn['transaction_public_id'],
-      'card_network': securityReturn['card_network'],
-      'log_id': securityReturn['log_id'],
-    });
   }
 
   Future<bool> rechargeViaSomeoneElse(
